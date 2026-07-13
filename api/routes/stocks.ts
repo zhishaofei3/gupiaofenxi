@@ -7,6 +7,8 @@
 
 import { Router, type Request, type Response } from "express";
 import axios, { type AxiosResponse } from "axios";
+import fs from "fs";
+import path from "path";
 import type {
   StockItem,
   StockListResponse,
@@ -685,6 +687,83 @@ router.post("/screening/restart", (_req: Request, res: Response): void => {
   // 异步启动新任务
   setTimeout(() => startBackgroundScreening(SCREENING_DAYS), 100);
   res.json({ code: 0, data: { message: "筛选任务已启动" } });
+});
+
+// ============ 9日下跌历史记录（轻量级JSON文件存储） ============
+
+const DECLINE_HISTORY_FILE = path.join(process.cwd(), "data", "decline-history.json");
+
+interface DeclineHistoryEntry {
+  code: string;
+  name: string;
+  market: Market;
+  price: number;
+}
+
+interface DeclineHistoryData {
+  [date: string]: DeclineHistoryEntry[];
+}
+
+function readDeclineHistory(): DeclineHistoryData {
+  try {
+    if (!fs.existsSync(DECLINE_HISTORY_FILE)) return {};
+    const raw = fs.readFileSync(DECLINE_HISTORY_FILE, "utf-8");
+    return JSON.parse(raw) as DeclineHistoryData;
+  } catch {
+    return {};
+  }
+}
+
+function writeDeclineHistory(data: DeclineHistoryData): void {
+  const dir = path.dirname(DECLINE_HISTORY_FILE);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.writeFileSync(DECLINE_HISTORY_FILE, JSON.stringify(data, null, 2), "utf-8");
+}
+
+/**
+ * POST /api/stocks/screening/history
+ * 保存今天9日下跌入选的股票
+ */
+router.post("/screening/history", (req: Request, res: Response): void => {
+  try {
+    const stocks = req.body?.stocks as DeclineHistoryEntry[];
+    if (!Array.isArray(stocks)) {
+      res.status(400).json({ code: -1, error: "参数错误" });
+      return;
+    }
+
+    const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
+    const history = readDeclineHistory();
+    history[today] = stocks;
+    writeDeclineHistory(history);
+
+    console.log(`[decline-history] 已保存 ${today} 的入选记录: ${stocks.length} 只`);
+    res.json({ code: 0, data: { date: today, count: stocks.length } });
+  } catch (err) {
+    const e = err as { message?: string };
+    res.status(500).json({ code: -1, error: e.message || "保存历史记录失败" });
+  }
+});
+
+/**
+ * GET /api/stocks/screening/history
+ * 获取所有往期9日下跌入选记录
+ */
+router.get("/screening/history", (_req: Request, res: Response): void => {
+  try {
+    const history = readDeclineHistory();
+    const sortedDates = Object.keys(history).sort((a, b) => b.localeCompare(a));
+    const result = sortedDates.map((date) => ({
+      date,
+      stocks: history[date] || [],
+    }));
+    res.json({ code: 0, data: result });
+  } catch (err) {
+    const e = err as { message?: string };
+    res.status(500).json({ code: -1, error: e.message || "读取历史记录失败" });
+  }
 });
 
 /**

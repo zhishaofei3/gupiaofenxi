@@ -141,3 +141,15 @@ export async function fetchQuantHistory(): Promise<{ code: number; data: History
   const { data } = await client.get("/quant/history");
   return data;
 }
+
+/** 保存9日下跌入选股票 */
+export async function saveDeclineHistory(stocks: HistoryStock[]): Promise<{ code: number; data: { date: string; count: number } }> {
+  const { data } = await client.post("/screening/history", { stocks });
+  return data;
+}
+
+/** 获取9日下跌往期入选记录 */
+export async function fetchDeclineHistory(): Promise<{ code: number; data: HistoryRecord[] }> {
+  const { data } = await client.get("/screening/history");
+  return data;
+}
