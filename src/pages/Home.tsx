@@ -9,12 +9,15 @@ import Header from "@/components/Header";
 import StockList from "@/components/StockList";
 import KlineChart from "@/components/KlineChart";
 import RealtimeChart from "@/components/RealtimeChart";
+import Splitter from "@/components/Splitter";
+import { useResizableWidth } from "@/hooks/useResizableWidth";
 import { useStockStore } from "@/store/stockStore";
 import type { StockItem } from "../../shared/types";
 
 export default function Home() {
   const [searchParams] = useSearchParams();
   const { loadStockList, error, clearError, selectedStock, loadApiSource, selectStock, stockList } = useStockStore();
+  const { width, onDragStart } = useResizableWidth(480);
 
   // 初始化：加载股票列表 + 同步数据源设置
   useEffect(() => {
@@ -70,14 +73,17 @@ export default function Home() {
       )}
 
       {/* 主体三栏 */}
-      <div className="grid flex-1 grid-cols-[480px_1fr] overflow-hidden">
+      <div className="flex flex-1 overflow-hidden">
         {/* 左侧：股票列表 */}
-        <aside className="border-r border-base-500 overflow-hidden">
+        <aside className="overflow-hidden" style={{ width }}>
           <StockList />
         </aside>
 
+        {/* 可拖拽分隔线 */}
+        <Splitter onDragStart={onDragStart} />
+
         {/* 右侧：K线图（上）+ 实时股价图（下） */}
-        <main className="flex flex-col overflow-hidden">
+        <main className="flex flex-1 flex-col overflow-hidden">
           {/* K线图占70% */}
           <div className="flex-[7] overflow-hidden border-b border-base-500">
             <KlineChart key={selectedStock?.code} />

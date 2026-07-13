@@ -25,6 +25,8 @@ import { useStockStore } from "@/store/stockStore";
 import type { QuantItem, StockItem } from "../../shared/types";
 import KlineChart from "@/components/KlineChart";
 import RealtimeChart from "@/components/RealtimeChart";
+import Splitter from "@/components/Splitter";
+import { useResizableWidth } from "@/hooks/useResizableWidth";
 
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5分钟
 
@@ -49,6 +51,7 @@ export default function QuantAnalysis() {
 
   // 页面内详情视图
   const [detailOpen, setDetailOpen] = useState(false);
+  const { width, onDragStart } = useResizableWidth(420);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadingRef = useRef(false);
@@ -346,7 +349,10 @@ export default function QuantAnalysis() {
       {/* 主体内容区 */}
       <div className="flex flex-1 overflow-hidden">
         {/* 左侧：表格 */}
-        <div className={`flex flex-col overflow-hidden ${detailOpen && selectedStock ? "w-[420px] border-r border-base-500" : "flex-1"}`}>
+        <div
+          className="flex flex-col overflow-hidden"
+          style={detailOpen && selectedStock ? { width } : { flex: 1 }}
+        >
           <div className="flex-1 overflow-auto">
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-base-800 text-text-muted">
@@ -371,27 +377,16 @@ export default function QuantAnalysis() {
                 {displayedResults.map((item) => (
                   <tr
                     key={item.code}
-                    className={`border-b border-base-700/50 transition hover:bg-base-700/30 ${
+                    onClick={() => handleSelectStock(item)}
+                    className={`cursor-pointer border-b border-base-700/50 transition hover:bg-base-700/30 ${
                       item.passed ? "bg-rise/5" : ""
                     } ${detailOpen && selectedStock?.code === item.code ? "bg-accent-gold/10" : ""}`}
                   >
-                    <td className="px-3 py-2 font-mono-num">
-                      <button
-                        onClick={() => handleSelectStock(item)}
-                        className="text-accent-gold hover:underline"
-                        title="点击查看K线和分时图"
-                      >
-                        {item.market.toUpperCase()}{item.code}
-                      </button>
+                    <td className="px-3 py-2 font-mono-num text-accent-gold">
+                      {item.market.toUpperCase()}{item.code}
                     </td>
-                    <td className="px-3 py-2">
-                      <button
-                        onClick={() => handleSelectStock(item)}
-                        className="text-text-primary hover:text-accent-gold hover:underline"
-                        title="点击查看K线和分时图"
-                      >
-                        {item.name}
-                      </button>
+                    <td className="px-3 py-2 text-text-primary">
+                      {item.name}
                     </td>
                     <td className="px-3 py-2 text-right font-mono-num text-text-primary">
                       {item.price.toFixed(2)}
@@ -449,6 +444,9 @@ export default function QuantAnalysis() {
             </table>
           </div>
         </div>
+
+        {/* 可拖拽分隔线 */}
+        {detailOpen && selectedStock && <Splitter onDragStart={onDragStart} />}
 
         {/* 右侧：K线图 + 分时图（选中股票时显示） */}
         {detailOpen && selectedStock && (

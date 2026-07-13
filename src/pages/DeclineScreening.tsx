@@ -28,6 +28,8 @@ import { useStockStore } from "@/store/stockStore";
 import type { ScreeningItem, StockItem } from "../../shared/types";
 import KlineChart from "@/components/KlineChart";
 import RealtimeChart from "@/components/RealtimeChart";
+import Splitter from "@/components/Splitter";
+import { useResizableWidth } from "@/hooks/useResizableWidth";
 
 export default function DeclineScreening() {
   const navigate = useNavigate();
@@ -44,6 +46,7 @@ export default function DeclineScreening() {
 
   // 页面内详情视图是否打开
   const [detailOpen, setDetailOpen] = useState(false);
+  const { width, onDragStart } = useResizableWidth(420);
 
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedRef = useRef(false);
@@ -257,7 +260,10 @@ export default function DeclineScreening() {
       {/* 主体内容区 */}
       <div className="flex flex-1 overflow-hidden">
         {/* 左侧：列表/进度 */}
-        <div className={`flex flex-col overflow-hidden ${detailOpen && selectedStock ? "w-[420px] border-r border-base-500" : "flex-1"}`}>
+        <div
+          className="flex flex-col overflow-hidden"
+          style={detailOpen && selectedStock ? { width } : { flex: 1 }}
+        >
           {/* 进度区域 */}
           {(isRunning || isPending) && (
             <div className="flex flex-1 flex-col items-center justify-center py-16">
@@ -355,6 +361,9 @@ export default function DeclineScreening() {
             </div>
           )}
         </div>
+
+        {/* 可拖拽分隔线 */}
+        {detailOpen && selectedStock && <Splitter onDragStart={onDragStart} />}
 
         {/* 右侧：K线图 + 分时图（选中股票时显示） */}
         {detailOpen && selectedStock && (
