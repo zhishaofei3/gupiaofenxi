@@ -17,19 +17,20 @@ import {
   Activity,
   Clock,
   Database,
-  ExternalLink,
   History,
   X,
 } from "lucide-react";
 import { fetchQuantAnalysis, saveQuantHistory, fetchQuantHistory, fetchRealtimeQuote, type HistoryRecord, type HistoryStock } from "@/api/stockApi";
 import { useStockStore } from "@/store/stockStore";
-import type { QuantItem } from "../../shared/types";
+import type { QuantItem, StockItem } from "../../shared/types";
+import KlineChart from "@/components/KlineChart";
+import RealtimeChart from "@/components/RealtimeChart";
 
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5分钟
 
 export default function QuantAnalysis() {
   const navigate = useNavigate();
-  const { apiSource, changeApiSource } = useStockStore();
+  const { apiSource, changeApiSource, selectStock: storeSelectStock, selectedStock } = useStockStore();
   const [results, setResults] = useState<QuantItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -45,6 +46,9 @@ export default function QuantAnalysis() {
   const [historyRecords, setHistoryRecords] = useState<HistoryRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [currentPrices, setCurrentPrices] = useState<Record<string, { price: number; change: number; changePct: number }>>({});
+
+  // 页面内详情视图
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadingRef = useRef(false);
@@ -147,10 +151,38 @@ export default function QuantAnalysis() {
     return date.toLocaleTimeString("zh-CN", { hour12: false });
   };
 
-  // 跳转到首页并选中该股票
-  const goToStock = (item: QuantItem) => {
-    navigate(`/?code=${item.code}&market=${item.market}&name=${encodeURIComponent(item.name)}`);
+  // 点击股票 → 在页面内展示K线+分时详情
+  const handleSelectStock = (item: QuantItem) => {
+    const stock: StockItem = {
+      code: item.code,
+      name: item.name,
+      market: item.market,
+      price: item.price,
+      changePercent: 0,
+      changeAmount: 0,
+      volume: 0,
+      amount: 0,
+    };
+    storeSelectStock(stock);
+    setDetailOpen(true);
   };
+
+  // 关闭详情
+  const closeDetail = () => {
+    setDetailOpen(false);
+    useStockStore.setState({ selectedStock: null });
+  };
+
+  // ESC 键关闭详情视图
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && detailOpen) {
+        closeDetail();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [detailOpen]);
 
   // 打开往期入选面板
   const handleShowHistory = useCallback(async () => {
@@ -311,108 +343,146 @@ export default function QuantAnalysis() {
         </div>
       )}
 
-      {/* 表格 */}
-      <div className="flex-1 overflow-auto">
-        <table className="w-full text-xs">
-          <thead className="sticky top-0 bg-base-800 text-text-muted">
-            <tr className="border-b border-base-500">
-              <th className="px-3 py-2 text-left font-medium">代码</th>
-              <th className="px-3 py-2 text-left font-medium">名称</th>
-              <th className="px-3 py-2 text-right font-medium">现价</th>
-              <th className="px-3 py-2 text-right font-medium">MA5</th>
-              <th className="px-3 py-2 text-center font-medium" title="近5日有涨停（不参与最终判定）">涨停*</th>
-              <th className="px-3 py-2 text-center font-medium">MA5支撑</th>
-              <th className="px-3 py-2 text-center font-medium">MACD金叉</th>
-              <th className="px-3 py-2 text-center font-medium">DIF上穿DEA</th>
-              <th className="px-3 py-2 text-center font-medium">DIF零轴附近</th>
-              <th className="px-3 py-2 text-center font-medium">DIF&gt;DEA</th>
-              <th className="px-3 py-2 text-right font-medium">日K数</th>
-              <th className="px-3 py-2 text-right font-medium">15分K数</th>
-              <th className="px-3 py-2 text-right font-medium">上根15分价</th>
-              <th className="px-3 py-2 text-center font-medium">状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            {displayedResults.map((item) => (
-              <tr
-                key={item.code}
-                className={`border-b border-base-700/50 transition hover:bg-base-700/30 ${
-                  item.passed ? "bg-rise/5" : ""
-                }`}
+      {/* 主体内容区 */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* 左侧：表格 */}
+        <div className={`flex flex-col overflow-hidden ${detailOpen && selectedStock ? "w-[420px] border-r border-base-500" : "flex-1"}`}>
+          <div className="flex-1 overflow-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-base-800 text-text-muted">
+                <tr className="border-b border-base-500">
+                  <th className="px-3 py-2 text-left font-medium">代码</th>
+                  <th className="px-3 py-2 text-left font-medium">名称</th>
+                  <th className="px-3 py-2 text-right font-medium">现价</th>
+                  <th className="px-3 py-2 text-right font-medium">MA5</th>
+                  <th className="px-3 py-2 text-center font-medium" title="近5日有涨停（不参与最终判定）">涨停*</th>
+                  <th className="px-3 py-2 text-center font-medium">MA5支撑</th>
+                  <th className="px-3 py-2 text-center font-medium">MACD金叉</th>
+                  <th className="px-3 py-2 text-center font-medium">DIF上穿DEA</th>
+                  <th className="px-3 py-2 text-center font-medium">DIF零轴附近</th>
+                  <th className="px-3 py-2 text-center font-medium">DIF&gt;DEA</th>
+                  <th className="px-3 py-2 text-right font-medium">日K数</th>
+                  <th className="px-3 py-2 text-right font-medium">15分K数</th>
+                  <th className="px-3 py-2 text-right font-medium">上根15分价</th>
+                  <th className="px-3 py-2 text-center font-medium">状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayedResults.map((item) => (
+                  <tr
+                    key={item.code}
+                    className={`border-b border-base-700/50 transition hover:bg-base-700/30 ${
+                      item.passed ? "bg-rise/5" : ""
+                    } ${detailOpen && selectedStock?.code === item.code ? "bg-accent-gold/10" : ""}`}
+                  >
+                    <td className="px-3 py-2 font-mono-num">
+                      <button
+                        onClick={() => handleSelectStock(item)}
+                        className="text-accent-gold hover:underline"
+                        title="点击查看K线和分时图"
+                      >
+                        {item.market.toUpperCase()}{item.code}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={() => handleSelectStock(item)}
+                        className="text-text-primary hover:text-accent-gold hover:underline"
+                        title="点击查看K线和分时图"
+                      >
+                        {item.name}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono-num text-text-primary">
+                      {item.price.toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono-num text-text-muted">
+                      {item.ma5 > 0 ? item.ma5.toFixed(2) : "-"}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <ConditionIcon ok={item.conditions.ztOk} dim />
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <ConditionIcon ok={item.conditions.ma5Ok} />
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <ConditionIcon ok={item.conditions.macdCross} />
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <ConditionIcon ok={item.conditions.difCrossDea} />
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <ConditionIcon ok={item.conditions.difNearZero} />
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <ConditionIcon ok={item.conditions.difAboveDea} />
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono-num text-text-muted">
+                      {item.dayCount}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono-num text-text-muted">
+                      {item.min15Count}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono-num text-text-muted">
+                      {item.last15Price > 0 ? item.last15Price.toFixed(2) : "-"}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {item.passed ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-rise/15 px-2 py-0.5 text-rise-bright">
+                          <TrendingUp className="h-3 w-3" />
+                          入选
+                        </span>
+                      ) : (
+                        <span className="text-text-muted">-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!loading && displayedResults.length === 0 && (
+                  <tr>
+                    <td colSpan={14} className="px-3 py-12 text-center text-text-muted">
+                      暂无数据
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 右侧：K线图 + 分时图（选中股票时显示） */}
+        {detailOpen && selectedStock && (
+          <div className="flex flex-1 flex-col overflow-hidden">
+            {/* 股票信息头 */}
+            <div className="flex items-center justify-between border-b border-base-600 bg-base-800 px-4 py-2">
+              <div className="flex items-center gap-3">
+                <span className="font-mono-num text-sm font-bold text-text-primary">
+                  {selectedStock.market.toUpperCase()}{selectedStock.code}
+                </span>
+                <span className="text-sm text-text-secondary">{selectedStock.name}</span>
+                <span className="font-mono-num text-sm font-bold text-text-primary">
+                  {selectedStock.price.toFixed(2)}
+                </span>
+              </div>
+              <button
+                onClick={closeDetail}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-text-muted transition hover:bg-base-600 hover:text-text-primary"
+                title="关闭详情 (ESC)"
               >
-                <td className="px-3 py-2 font-mono-num">
-                  <button
-                    onClick={() => goToStock(item)}
-                    className="flex items-center gap-1 text-accent-gold hover:underline"
-                    title="跳转到首页查看K线和实时图"
-                  >
-                    {item.market.toUpperCase()}{item.code}
-                    <ExternalLink className="h-3 w-3 opacity-60" />
-                  </button>
-                </td>
-                <td className="px-3 py-2">
-                  <button
-                    onClick={() => goToStock(item)}
-                    className="text-text-primary hover:text-accent-gold hover:underline"
-                    title="跳转到首页查看"
-                  >
-                    {item.name}
-                  </button>
-                </td>
-                <td className="px-3 py-2 text-right font-mono-num text-text-primary">
-                  {item.price.toFixed(2)}
-                </td>
-                <td className="px-3 py-2 text-right font-mono-num text-text-muted">
-                  {item.ma5 > 0 ? item.ma5.toFixed(2) : "-"}
-                </td>
-                <td className="px-3 py-2 text-center">
-                  <ConditionIcon ok={item.conditions.ztOk} dim />
-                </td>
-                <td className="px-3 py-2 text-center">
-                  <ConditionIcon ok={item.conditions.ma5Ok} />
-                </td>
-                <td className="px-3 py-2 text-center">
-                  <ConditionIcon ok={item.conditions.macdCross} />
-                </td>
-                <td className="px-3 py-2 text-center">
-                  <ConditionIcon ok={item.conditions.difCrossDea} />
-                </td>
-                <td className="px-3 py-2 text-center">
-                  <ConditionIcon ok={item.conditions.difNearZero} />
-                </td>
-                <td className="px-3 py-2 text-center">
-                  <ConditionIcon ok={item.conditions.difAboveDea} />
-                </td>
-                <td className="px-3 py-2 text-right font-mono-num text-text-muted">
-                  {item.dayCount}
-                </td>
-                <td className="px-3 py-2 text-right font-mono-num text-text-muted">
-                  {item.min15Count}
-                </td>
-                <td className="px-3 py-2 text-right font-mono-num text-text-muted">
-                  {item.last15Price > 0 ? item.last15Price.toFixed(2) : "-"}
-                </td>
-                <td className="px-3 py-2 text-center">
-                  {item.passed ? (
-                    <span className="inline-flex items-center gap-1 rounded bg-rise/15 px-2 py-0.5 text-rise-bright">
-                      <TrendingUp className="h-3 w-3" />
-                      入选
-                    </span>
-                  ) : (
-                    <span className="text-text-muted">-</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {!loading && displayedResults.length === 0 && (
-              <tr>
-                <td colSpan={14} className="px-3 py-12 text-center text-text-muted">
-                  暂无数据
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                <X className="h-3.5 w-3.5" />
+                关闭
+              </button>
+            </div>
+            {/* K线图 */}
+            <div className="flex-[7] overflow-hidden border-b border-base-500">
+              <KlineChart key={selectedStock.code} />
+            </div>
+            {/* 分时图 */}
+            <div className="flex-[3] overflow-hidden bg-base-800">
+              <RealtimeChart key={selectedStock.code} />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 底部说明 */}
@@ -490,7 +560,19 @@ export default function QuantAnalysis() {
                                 key={stock.code}
                                 className="border-t border-base-700/50 hover:bg-base-700/30 cursor-pointer"
                                 onClick={() => {
-                                  navigate(`/?code=${stock.code}&market=${stock.market}&name=${encodeURIComponent(stock.name)}`);
+                                  setShowHistory(false);
+                                  const si: StockItem = {
+                                    code: stock.code,
+                                    name: stock.name,
+                                    market: stock.market,
+                                    price: stock.price,
+                                    changePercent: cp?.changePct ?? 0,
+                                    changeAmount: cp?.change ?? 0,
+                                    volume: 0,
+                                    amount: 0,
+                                  };
+                                  storeSelectStock(si);
+                                  setDetailOpen(true);
                                 }}
                               >
                                 <td className="px-2 py-1.5">
