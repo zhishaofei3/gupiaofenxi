@@ -77,6 +77,9 @@ interface StockState {
 // 轮询定时器（模块级，不放入 store 避免序列化）
 let pollingTimer: ReturnType<typeof setTimeout> | null = null;
 
+// K线请求计数器（用于丢弃快速切换时的过期响应，防止竞态）
+let klineRequestId = 0;
+
 export const useStockStore = create<StockState>((set, get) => ({
   stockList: [],
   listLoading: false,
@@ -146,6 +149,8 @@ export const useStockStore = create<StockState>((set, get) => ({
     const { selectedStock, klinePeriod } = get();
     const p = period || klinePeriod;
     if (!selectedStock) return;
+    // 每次请求递增 ID，用于丢弃过期响应
+    const requestId = ++klineRequestId;
     set({ klineLoading: true, klinePeriod: p, error: null });
     try {
       const resp = await fetchKline({
@@ -153,12 +158,15 @@ export const useStockStore = create<StockState>((set, get) => ({
         market: selectedStock.market,
         period: p,
       });
+      // 如果在等待期间又发起了新请求，丢弃本次响应
+      if (requestId !== klineRequestId) return;
       set({
         klineData: resp.data.klines,
         klineName: resp.data.name,
         klineLoading: false,
       });
     } catch {
+      if (requestId !== klineRequestId) return;
       set({
         klineLoading: false,
         error: "加载K线数据失败",

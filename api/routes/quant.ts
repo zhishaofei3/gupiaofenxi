@@ -16,8 +16,12 @@ import { getStockDirectory, apiConfig } from "./stocks.js";
 
 const router = Router();
 
-// ============ 预定义股票池 ============
-const STOCK_POOL: string[] = [
+// ============ 股票池（文件持久化，支持界面管理） ============
+
+const STOCK_POOL_FILE = path.join(process.cwd(), "data", "stock-pool.json");
+
+// 默认股票池（首次使用时写入文件）
+const DEFAULT_STOCK_POOL: string[] = [
   "688722", "300129", "600664", "601608", "002606", "600428", "603223", "000933",
   "601858", "000920", "603698", "603162", "600685", "000887", "002970", "603236",
   "603155", "603270", "605090", "603556", "001395", "002402", "002202", "002346",
@@ -30,6 +34,39 @@ const STOCK_POOL: string[] = [
   "600584", "603726", "002546", "603005", "002632", "000811", "002152", "301607",
   "301379", "002916", "001207", "000417", "002396", "603156",
 ];
+
+let stockPool: string[] = [];
+
+function loadStockPool(): void {
+  try {
+    if (fs.existsSync(STOCK_POOL_FILE)) {
+      const raw = fs.readFileSync(STOCK_POOL_FILE, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        stockPool = parsed.filter((s: unknown) => typeof s === "string" && /^\d{6}$/.test(s));
+        console.log(`[stock-pool] 从文件加载 ${stockPool.length} 只股票`);
+        return;
+      }
+    }
+  } catch (err) {
+    console.error("[stock-pool] 加载失败:", err);
+  }
+  stockPool = [...DEFAULT_STOCK_POOL];
+  saveStockPool();
+}
+
+function saveStockPool(): void {
+  try {
+    const dir = path.dirname(STOCK_POOL_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(STOCK_POOL_FILE, JSON.stringify(stockPool, null, 2), "utf-8");
+  } catch (err) {
+    console.error("[stock-pool] 保存失败:", err);
+  }
+}
+
+// 启动时加载
+loadStockPool();
 
 // ============ 工具函数 ============
 
@@ -348,14 +385,14 @@ router.get("/quant", async (req: Request, res: Response): Promise<void> => {
 
     // 1. 批量获取实时价格（根据当前数据源切换）
     const priceMap = apiConfig.source === "sina"
-      ? await batchFetchPricesSina(STOCK_POOL)
-      : await batchFetchPrices(STOCK_POOL);
+      ? await batchFetchPricesSina(stockPool)
+      : await batchFetchPrices(stockPool);
 
     // 2. 从目录缓存获取股票名称（UTF-8，避免腾讯API的GBK编码乱码）
     const dir = getStockDirectory();
     const nameMap = new Map<string, string>();
     for (const item of dir) {
-      if (STOCK_POOL.includes(item.code)) {
+      if (stockPool.includes(item.code)) {
         nameMap.set(item.code, item.name);
       }
     }
@@ -363,7 +400,7 @@ router.get("/quant", async (req: Request, res: Response): Promise<void> => {
     // 3. 并发分析所有股票（并发数8）
     const CONCURRENCY = 8;
     const results = await mapWithConcurrency(
-      STOCK_POOL,
+      stockPool,
       CONCURRENCY,
       (code) => analyzeStock(code, priceMap.get(code) || 0, nameMap.get(code) || code)
     );
@@ -374,7 +411,7 @@ router.get("/quant", async (req: Request, res: Response): Promise<void> => {
     // 更新缓存
     quantCache = {
       results,
-      total: STOCK_POOL.length,
+      total: stockPool.length,
       passedCount,
       scannedCount: results.length,
       duration,
@@ -385,7 +422,7 @@ router.get("/quant", async (req: Request, res: Response): Promise<void> => {
       code: 0,
       data: {
         results,
-        total: STOCK_POOL.length,
+        total: stockPool.length,
         passedCount,
         scannedCount: results.length,
         duration,
@@ -395,6 +432,68 @@ router.get("/quant", async (req: Request, res: Response): Promise<void> => {
     console.error("[quant] error:", err);
     res.status(500).json({ code: -1, error: "量化分析失败" });
   }
+});
+
+// ============ 股票池管理接口 ============
+
+interface PoolStock {
+  code: string;
+  name: string;
+  market: Market;
+}
+
+/**
+ * GET /api/stocks/quant/pool
+ * 获取当前股票池（含名称、市场）
+ */
+router.get("/quant/pool", (_req: Request, res: Response): void => {
+  const dir = getStockDirectory();
+  const stocks: PoolStock[] = stockPool.map((code) => {
+    const item = dir.find((d) => d.code === code);
+    return {
+      code,
+      name: item?.name || code,
+      market: marketFromCode(code),
+    };
+  });
+  res.json({ code: 0, data: { stocks, count: stocks.length } });
+});
+
+/**
+ * POST /api/stocks/quant/pool
+ * 批量更新股票池（替换全部）
+ * body: { stocks: string[] } 或 { stocks: "600519\n000858,002304" }（支持换行/逗号分隔的字符串）
+ */
+router.post("/quant/pool", (req: Request, res: Response): void => {
+  let { stocks } = req.body;
+  if (typeof stocks === "string") {
+    stocks = stocks.split(/[\n,\s]+/).map((s: string) => s.trim()).filter(Boolean);
+  }
+  if (!Array.isArray(stocks)) {
+    res.status(400).json({ code: -1, error: "stocks 必须是数组或字符串" });
+    return;
+  }
+  // 过滤合法的6位数字代码并去重
+  stockPool = Array.from(new Set(
+    stocks.filter((s: unknown) => typeof s === "string" && /^\d{6}$/.test(s as string))
+  ));
+  saveStockPool();
+  quantCache = null;
+  console.log(`[stock-pool] 更新为 ${stockPool.length} 只股票`);
+  res.json({ code: 0, data: { count: stockPool.length } });
+});
+
+/**
+ * DELETE /api/stocks/quant/pool/:code
+ * 从股票池中删除单只股票
+ */
+router.delete("/quant/pool/:code", (req: Request, res: Response): void => {
+  const code = req.params.code;
+  stockPool = stockPool.filter((c) => c !== code);
+  saveStockPool();
+  quantCache = null;
+  console.log(`[stock-pool] 删除 ${code}，剩余 ${stockPool.length} 只`);
+  res.json({ code: 0, data: { count: stockPool.length } });
 });
 
 // ============ 量化入选历史记录（轻量级JSON文件存储） ============

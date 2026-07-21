@@ -192,17 +192,21 @@ export default function RealtimeChart() {
     const lineColor =
       prevClose > 0 && latestPrice >= prevClose ? "#ef4444" : "#10b981";
 
-    // 计算Y轴范围：以昨收为中轴
-    let minPrice = prevClose;
-    let maxPrice = prevClose;
-    points.forEach((p) => {
-      if (p.price < minPrice) minPrice = p.price;
-      if (p.price > maxPrice) maxPrice = p.price;
-    });
-    // 上下留 1% 余量
-    const range = Math.max(maxPrice - minPrice, prevClose * 0.005);
-    const yMin = prevClose - range * 1.1;
-    const yMax = prevClose + range * 1.1;
+    // Y轴范围：以昨收为中轴，上下10%（A股涨跌停尺度）
+    let yMin: number, yMax: number;
+    if (prevClose > 0) {
+      yMin = prevClose * 0.90;
+      yMax = prevClose * 1.10;
+    } else {
+      let minPrice = Infinity, maxPrice = -Infinity;
+      points.forEach((p) => {
+        if (p.price < minPrice) minPrice = p.price;
+        if (p.price > maxPrice) maxPrice = p.price;
+      });
+      const range = Math.max(maxPrice - minPrice, 0.01);
+      yMin = minPrice - range * 0.1;
+      yMax = maxPrice + range * 0.1;
+    }
 
     return {
       animation: false,
@@ -260,7 +264,13 @@ export default function RealtimeChart() {
         axisLabel: {
           color: "#6e7681",
           fontSize: 10,
-          formatter: (v: number) => v.toFixed(2),
+          formatter: (v: number) => {
+            if (prevClose > 0) {
+              const pct = ((v - prevClose) / prevClose * 100);
+              return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
+            }
+            return v.toFixed(2);
+          },
         },
       },
       series: [

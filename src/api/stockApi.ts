@@ -153,3 +153,29 @@ export async function fetchDeclineHistory(): Promise<{ code: number; data: Histo
   const { data } = await client.get("/screening/history");
   return data;
 }
+
+// ============ 股票池管理 ============
+
+export interface PoolStock {
+  code: string;
+  name: string;
+  market: "sh" | "sz";
+}
+
+/** 获取当前股票池 */
+export async function fetchStockPool(): Promise<{ code: number; data: { stocks: PoolStock[]; count: number } }> {
+  const { data } = await client.get("/quant/pool");
+  return data;
+}
+
+/** 批量更新股票池（替换全部）— 支持数组或换行/逗号分隔的字符串 */
+export async function updateStockPool(stocks: string[] | string): Promise<{ code: number; data: { count: number } }> {
+  const { data } = await client.post("/quant/pool", { stocks });
+  return data;
+}
+
+/** 从股票池删除单只股票 */
+export async function removeStockFromPool(code: string): Promise<{ code: number; data: { count: number } }> {
+  const { data } = await client.delete(`/quant/pool/${code}`);
+  return data;
+}
